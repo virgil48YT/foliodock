@@ -14,13 +14,10 @@ Android 8.0 or later is required. There is no 32-bit ARM build. Expect a substan
 
 **Normal updates install over the existing app. Do not uninstall a release-signed version first.** Download the newer APK and approve Android's update prompt. The package ID and persistent release signing key stay the same, while CI increases the internal Android version code on every build. Your private copies, preferences, and file index are retained.
 
-Android compares the signing certificate when installing an update; the release key is deliberately not regenerated between builds. See [Android's signing documentation](https://developer.android.com/studio/publish/app-signing).
 
 The app and GitHub release are labeled **3.0**. Its internal version code is above 300000, higher than the earlier preview's 200005. This does not implement a background auto-updater; install the downloaded APK normally.
 
 Only the earliest debug-signed prototype has a different signing key. Android cannot replace that signature with the release key in place. If you still have that prototype, back up app-only copies before the one-time migration. Subsequent release-signed updates do not require uninstalling.
-
-Release signing establishes a stable signing identity, not a Google security endorsement. Play Protect may still scan, warn about, or block sideloaded apps; do not disable protection merely because an APK is signed. See [Google's Play Protect documentation](https://support.google.com/googleplay/answer/2812853?hl=en).
 
 ## Reading experience
 
@@ -108,10 +105,5 @@ Release certificate SHA-256:
 46:A7:66:F3:06:54:E8:CF:E5:E3:A7:CE:D4:18:95:DE:4E:45:F6:2D:3D:64:DE:9E:9E:F0:DD:B4:B1:93:F4:5A
 ```
 
-## Tests and licensing
-
-The unit suite covers the fallback document parser, tiled-rendering geometry, format dispatch, private font-configuration rewriting, storage traversal/index persistence, and direct format/family filtering. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering. Release history and changes are in [CHANGELOG.md](CHANGELOG.md).
-
-Android 11 / API 30 x86_64 emulator smoke checks installed the non-debuggable signed release and rendered Word tables and embedded images, PowerPoint shapes/images, and styled Excel cells. The compact library, reader, and persisted night-page toggle were inspected on screen. The final font configuration uses the app's writable cache and bundled fonts; native initialization succeeds without the previous upstream-package cache error. These checks are not a physical-device certification or an exhaustive format/fidelity test. See [Android verification notes](docs/ANDROID_QA.md).
 
 FolioDock's original code is MIT licensed. LibreOfficeKit bindings retain MPL-2.0 headers, and the unmodified native engine, fonts, and libraries retain their original licenses. Full component notices and corresponding-source links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and bundled under the app's `assets/licenses/` directory. FolioDock is not affiliated with LibreOffice, The Document Foundation, F-Droid, Google, or Microsoft.
