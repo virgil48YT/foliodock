@@ -2,7 +2,9 @@
 
 An offline Android document reader with a monochrome AMOLED-black homepage, device-wide document discovery, a compact reader, and a real LibreOffice layout engine. Office pages are rendered with their layouts rather than reconstructed from extracted text.
 
-<img src="docs/screenshots/amoled-reader.png" alt="Word table layout with night page colors, captured during engine verification" width="240">
+<img src="docs/screenshots/amoled-library.png" alt="FolioDock 3.0 monochrome AMOLED homepage after storage scanning" width="240"> <img src="docs/screenshots/pptx-slide-3.png" alt="FolioDock 3.0 rendering the third slide with visible slide navigation and night page colors" width="240">
+
+Actual Android screenshots. The [QA record](docs/ANDROID_QA.md) documents update-data retention, storage discovery, and navigation through a three-slide presentation.
 
 ## Download the APK
 

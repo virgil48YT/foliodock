@@ -8,7 +8,23 @@ Validation performed on November 6, 2026. This records checks actually run, not 
 - **Build and package:** Debug/release lint and signed ARM64/x86_64 assemblies pass. The package remains `app.foliodock`; version name is `3.0`, with internal version code `300006` for build 6.
 - **Signing continuity:** Both APKs verify against the same certificate used for the earlier release. No key regeneration or package-name change was introduced.
 - **Permissions:** The release checker now permits only `MANAGE_EXTERNAL_STORAGE` and `READ_EXTERNAL_STORAGE` capped at API 29. No Internet or install-packages permission is declared.
-- **Runtime qualification:** The software-emulated Android test environment suffered system-server watchdog restarts before the new app could be installed. These operating-system failures are not counted as successful 3.0 runtime checks. The earlier native-engine checks below are historical; new scanning, upgrade-data retention, launcher sizing, and multi-slide interactions require a separate runtime pass.
+- **CI release:** [Build 6](https://github.com/virgil48YT/foliodock/actions/runs/42190339900) completed successfully and published [v3.0](https://github.com/virgil48YT/foliodock/releases/tag/v3.0), targeting source commit `756c5a5baa594fd50a07cf30d919d557ee3a2229`. Its downloaded ARM64 APK matched the published SHA-256 checksum and passed the release identity, permissions, and packaging verifier.
+
+### Version 3.0 runtime checks
+
+Environment: Android 11 / API 30 x86_64 software emulator. Runtime checks used a locally assembled, signed release APK from the same app source, not a debug APK. CI and local APK hashes differ; the separately downloaded CI ARM64 package received static verification, not an ARM64 runtime pass.
+
+- **In-place update:** `adb install --no-streaming -r` succeeded over the earlier release-signed preview without uninstalling. Android reported `versionCode=300006` and `versionName=3.0`. A marker in the existing app-private files directory remained unchanged, as did previously imported document copies.
+- **Permission flow:** The first-launch explanation appeared with Allow storage and Not now. Allow storage opened Android's per-app All files access screen, which displayed FolioDock version 3.0. Enabling the switch and returning to the app initiated scanning.
+- **Device discovery:** After correcting an accidentally private permission mode on the emulator's seeded Download fixture directory, scanning found seven supported documents across shared-storage folders. The UI displayed 23 files checked. The persisted `device-documents.index` remained available after force-stopping and relaunching the app.
+- **Format filtering:** Selecting PPTX limited the list to presentations, including a newly discovered `Download/Navigation-3-slides.pptx`. The row identified the original's folder rather than presenting it as an imported copy.
+- **Native multi-slide rendering:** Opening that scanned presentation initialized LibreOfficeKit successfully. Slide 1 displayed “SLIDE 1 OF 3”; Next displayed “SLIDE 2 OF 3”; the slide chooser listed all three slides and opened “SLIDE 3 OF 3.” Previous returned from slide 3 to slide 2. At the final slide, Next was visibly disabled. These were distinct rendered slide contents, not just counter changes.
+- **AMOLED presentation:** The observed library, reader chrome, slide controls, and dialogs were black with white/gray controls and no purple accent. The presentation screenshots use the existing Night page colors preference; original file colors remain available.
+- **Icon:** Android's application-access settings displayed the new larger monochrome adaptive document mark, replacing the earlier small purple nested-tile artwork.
+
+Screenshots in `docs/screenshots/amoled-library.png` and `docs/screenshots/pptx-slide-3.png` show this 3.0 runtime pass. The software emulator initially suffered Android system-server watchdog restarts before installation; those boot failures are not counted as app failures or as successful checks. Testing continued only after the system stabilized.
+
+The three-slide navigation deck was a diagnostic derivative of the public LibreOffice slide fixture listed below, with distinct slide-number text added for this test. It is not a claim that the original one-slide fixture contained three slides.
 
 ## Earlier 2.0 baseline
 

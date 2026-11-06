@@ -25,6 +25,14 @@ The app's visible version and GitHub release are both labeled 3.0. Android also 
 
 Only the earliest debug-signed prototype cannot accept a release-key update in place. Back up any app-only copies if you need that one-time migration. Do not uninstall normal release-signed builds before updating.
 
+## Verification
+
+GitHub CI passed tests, Android lint, signed builds, and release-package checks. The downloaded CI ARM64 APK also matched its published checksum and the existing release certificate.
+
+On an Android 11 x86_64 emulator, the 3.0 release build installed over the earlier signed preview without uninstalling and retained app-private data. Storage permission, discovery, index persistence, and PPTX filtering were exercised. A three-slide deck rendered three distinct slide contents; Next, Previous, and the slide chooser were checked. Physical ARM64 devices have not received a runtime pass.
+
+See [the detailed QA record](https://github.com/virgil48YT/foliodock/blob/main/docs/ANDROID_QA.md) for scope and screenshots.
+
 ## Limits
 
 Scanning cannot access other apps' protected folders, unmounted volumes, or cloud-only providers. The local index is capped at 50,000 supported documents with an explicit limit message, and opening remains limited to 80 MB per file. Documents are read-only; complex Office formatting can differ from Microsoft Office.
