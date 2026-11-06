@@ -106,6 +106,18 @@ object OfficeRuntime {
                 unpack("unpack", data)
                 marker.writeText(assetVersion)
             }
+            val fontCache = File(data, "fontconfig")
+            require(fontCache.isDirectory || fontCache.mkdirs()) { "Could not create the Office font cache." }
+            require(fontCache.canWrite()) { "The Office font cache is not writable." }
+            val bundledFonts = File(data, "user/fonts")
+            require(bundledFonts.isDirectory) { "The bundled Office fonts are missing. Reinstall FolioDock." }
+            // The upstream asset hardcodes its original app package's cache path. Always start
+            // from that unmodified asset, not a previously rewritten private configuration.
+            val originalFontConfig = activity.assets.open("unpack/etc/fonts/fonts.conf")
+                .bufferedReader(Charsets.UTF_8).use { it.readText() }
+            File(data, "etc/fonts/fonts.conf").writeText(
+                OfficeFontConfig.configure(originalFontConfig, fontCache.absolutePath, bundledFonts.absolutePath)
+            )
             val profile = File(data, "lo-profile")
             val user = File(profile, "user").apply { mkdirs() }
             // No trusted macro locations are configured. VeryHigh refuses untrusted document macros.

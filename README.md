@@ -2,6 +2,8 @@
 
 An offline Android document reader with AMOLED-black chrome, a compact 56 dp toolbar, and a real LibreOffice layout engine. Office pages are no longer reconstructed from extracted text.
 
+<img src="docs/screenshots/amoled-library.png" alt="Actual AMOLED library on Android" width="240"> <img src="docs/screenshots/amoled-reader.png" alt="Actual Word table layout with night page colors" width="240">
+
 ## Download the APK
 
 Open [Releases](https://github.com/virgil48YT/foliodock/releases/latest) and download **FolioDock-arm64-v8a.apk** for a modern 64-bit ARM Android phone. **FolioDock-x86_64.apk** is for compatible Intel devices or Android emulators. The release assets are raw `.apk` files, not ZIP archives; `SHA256SUMS.txt` accompanies each build.
@@ -89,6 +91,8 @@ Release certificate SHA-256:
 
 ## Tests and licensing
 
-The unit suite covers the fallback document parser and pure tiled-rendering geometry. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering.
+The 40-case unit suite covers the fallback document parser, tiled-rendering geometry, format dispatch, and private font-configuration rewriting. Debug/release lint and both signed release assemblies pass locally. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering.
+
+Android 11 / API 30 x86_64 emulator smoke checks installed the non-debuggable signed release and rendered Word tables and embedded images, PowerPoint shapes/images, and styled Excel cells. The compact library, reader, and persisted night-page toggle were inspected on screen. The final font configuration uses the app's writable cache and bundled fonts; native initialization succeeds without the previous upstream-package cache error. These checks are not a physical-device certification or an exhaustive format/fidelity test. See [Android verification notes](docs/ANDROID_QA.md).
 
 FolioDock's original code is MIT licensed. LibreOfficeKit bindings retain MPL-2.0 headers, and the unmodified native engine, fonts, and libraries retain their original licenses. Full component notices and corresponding-source links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and bundled under the app's `assets/licenses/` directory. FolioDock is not affiliated with LibreOffice, The Document Foundation, F-Droid, Google, or Microsoft.
