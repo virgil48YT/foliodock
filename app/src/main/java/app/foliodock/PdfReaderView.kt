@@ -3,6 +3,7 @@ package app.foliodock
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.view.View
@@ -29,8 +30,15 @@ class PdfReaderView(context: Context, file: File, private val report: (String) -
     @Volatile private var generation = 0
     private val stack = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val density = resources.displayMetrics.density
+    private var nightMode = false
+    private val nightFilter = ColorMatrixColorFilter(floatArrayOf(
+        -1f, 0f, 0f, 0f, 255f,
+        0f, -1f, 0f, 0f, 255f,
+        0f, 0f, -1f, 0f, 255f,
+        0f, 0f, 0f, 1f, 0f
+    ))
     init {
-        setBackgroundColor(Color.rgb(224, 226, 231))
+        setBackgroundColor(Color.BLACK)
         addView(stack, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         viewTreeObserver.addOnScrollChangedListener { updateVisible() }
         worker.execute {
@@ -43,23 +51,24 @@ class PdfReaderView(context: Context, file: File, private val report: (String) -
                 val ratios = (0 until count).map { i -> requireNotNull(renderer).openPage(i).use { it.height.toFloat() / it.width.coerceAtLeast(1) } }
                 post {
                     if (!closed) {
-                        val pageWidth = (resources.displayMetrics.widthPixels - 28 * density).toInt().coerceAtLeast(200)
+                        val pageWidth = (resources.displayMetrics.widthPixels - 12 * density).toInt().coerceAtLeast(200)
                         ratios.forEachIndexed { i, ratio ->
                             val label = TextView(context).apply {
                                 text = "PAGE ${i + 1} / $count"
                                 textSize = 10f
-                                setTextColor(Color.DKGRAY)
-                                setPadding((14 * density).toInt(), (14 * density).toInt(), 0, (6 * density).toInt())
+                                setTextColor(Color.rgb(155, 155, 165))
+                                setPadding((8 * density).toInt(), (6 * density).toInt(), 0, (4 * density).toInt())
                             }
                             stack.addView(label)
                             val image = ImageView(context).apply {
-                                setBackgroundColor(Color.WHITE)
+                                setBackgroundColor(if (nightMode) Color.BLACK else Color.WHITE)
+                                colorFilter = if (nightMode) nightFilter else null
                                 scaleType = ImageView.ScaleType.FIT_CENTER
                                 contentDescription = "PDF page ${i + 1}"
                             }
                             pages.add(image)
                             stack.addView(image, LinearLayout.LayoutParams(pageWidth, (pageWidth * ratio).toInt().coerceIn(100, 18000)).apply {
-                                setMargins((14 * density).toInt(), 0, (14 * density).toInt(), 0)
+                                setMargins((6 * density).toInt(), 0, (6 * density).toInt(), 0)
                             })
                         }
                         post { updateVisible() }
@@ -110,6 +119,13 @@ class PdfReaderView(context: Context, file: File, private val report: (String) -
     }
     fun nextPage() { if (pages.isNotEmpty()) smoothScrollTo(0, pages[(visible + 1).coerceAtMost(pages.lastIndex)].top) }
     fun previousPage() { if (pages.isNotEmpty()) smoothScrollTo(0, pages[(visible - 1).coerceAtLeast(0)].top) }
+    fun setNightMode(enabled: Boolean) {
+        nightMode = enabled
+        pages.forEach {
+            it.colorFilter = if (enabled) nightFilter else null
+            it.setBackgroundColor(if (enabled) Color.BLACK else Color.WHITE)
+        }
+    }
     override fun close() {
         if (closed) return
         closed = true

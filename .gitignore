@@ -7,3 +7,5 @@ local.properties
 *.jks
 *.keystore
 .DS_Store
+/app/src/main/office-assets/
+/app/src/main/jniLibs/

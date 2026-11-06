@@ -13,6 +13,7 @@ import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.SpannableString
 import android.text.TextWatcher
+import android.text.TextUtils
 import android.text.style.BackgroundColorSpan
 import android.view.Gravity
 import android.view.View
@@ -24,16 +25,17 @@ import java.util.concurrent.Executors
 import kotlin.math.min
 
 class MainActivity : Activity() {
-    private val navy = Color.rgb(23, 34, 53)
-    private val ink = Color.rgb(39, 47, 62)
-    private val muted = Color.rgb(110, 118, 133)
-    private val purple = Color.rgb(103, 85, 206)
-    private val paper = Color.rgb(245, 244, 240)
+    private val ink = Color.rgb(241, 241, 244)
+    private val muted = Color.rgb(155, 155, 165)
+    private val purple = Color.rgb(185, 168, 255)
+    private val paper = Color.BLACK
     private val worker = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("library", MODE_PRIVATE) }
     private val directory by lazy { File(filesDir, "documents").apply { mkdirs() } }
     private lateinit var root: LinearLayout
     private var pdf: PdfReaderView? = null
+    private var office: OfficeReaderView? = null
+    private var nightPages = false
     private var currentFile: File? = null
     private var currentName = ""
     private var document: ParsedDocument? = null
@@ -51,6 +53,7 @@ class MainActivity : Activity() {
     private var libraryFilter = "All"
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        nightPages = prefs.getBoolean("night_pages", false)
         showLibrary()
         val uri = intent.takeIf { it.action == Intent.ACTION_VIEW }?.data
         if (uri != null) importDocument(uri)
@@ -70,6 +73,7 @@ class MainActivity : Activity() {
     }
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun round(color: Int, radius: Int = 16) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
+    private fun outlined() = round(Color.BLACK, 10).apply { setStroke(dp(1), Color.rgb(38, 38, 43)) }
     private fun label(value: String, size: Float = 16f, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
         text = value; textSize = size; setTextColor(color)
         if (bold) setTypeface(typeface, Typeface.BOLD)
@@ -77,10 +81,15 @@ class MainActivity : Activity() {
     }
     private fun button(value: String, primary: Boolean = false, action: () -> Unit) = Button(this).apply {
         text = value; isAllCaps = false; textSize = 14f
-        setTextColor(if (primary) Color.WHITE else purple)
-        background = round(if (primary) purple else Color.rgb(235, 231, 251), 12)
-        minHeight = dp(46)
-        setPadding(dp(14), dp(8), dp(14), dp(8))
+        setTextColor(android.content.res.ColorStateList(
+            arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+            intArrayOf(Color.rgb(80, 80, 88), if (primary) purple else ink)
+        ))
+        background = if (primary) outlined() else round(Color.BLACK, 8)
+        minHeight = dp(48); minimumHeight = dp(48)
+        minWidth = 0; minimumWidth = 0
+        setPadding(dp(8), 0, dp(8), 0)
+        setSingleLine()
         setOnClickListener { action() }
     }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -90,6 +99,7 @@ class MainActivity : Activity() {
     }
     private fun newScreen() {
         pdf?.close(); pdf = null
+        office?.close(); office = null
         root = column().apply { setBackgroundColor(paper) }
         setContentView(root)
         // Target 35 uses edge-to-edge. Keep all interactive content outside system bars.
@@ -106,28 +116,27 @@ class MainActivity : Activity() {
         token++
         currentFile = null; document = null
         newScreen()
-        val header = column().apply { setPadding(dp(24), dp(27), dp(24), dp(26)); setBackgroundColor(navy) }
-        header.add(label("FOLIODOCK", 13f, Color.rgb(188, 177, 244), true))
-        header.add(label("Your files.\nOne quiet place.", 31f, Color.WHITE, true), margin = 0)
-        header.add(label("Your documents stay on this device.", 14f, Color.rgb(194, 201, 213)))
-        header.add(button("＋  Open a document", true) { pick() }, margin = 0)
-        root.add(header)
+        val header = row().apply { setPadding(dp(16), dp(4), dp(4), dp(4)); setBackgroundColor(Color.BLACK) }
+        header.addView(label("FolioDock", 20f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.add(button("＋ Open", true) { pick() }, dp(88), dp(48))
+        header.add(button("⋮") { about() }.apply { contentDescription = "About FolioDock" }, dp(48), dp(48))
+        root.add(header, height = dp(56))
         val scroll = ScrollView(this)
-        val content = column().apply { setPadding(dp(20), dp(22), dp(20), dp(24)) }
+        val content = column().apply { setPadding(dp(12), 0, dp(12), dp(16)) }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val top = row()
-        top.addView(label("Your library", 23f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
-        top.add(button("About") { about() }, width = dp(82))
-        content.add(top)
-        val search = EditText(this).apply { hint = "Find a document"; textSize = 15f; setSingleLine(); contentDescription = "Search library" }
-        content.add(search)
+        val search = EditText(this).apply {
+            hint = "Search files"; textSize = 14f; setSingleLine(); contentDescription = "Search library"
+            setTextColor(ink); setHintTextColor(muted)
+            setPadding(dp(12), 0, dp(12), 0); background = outlined()
+        }
+        content.add(search, height = dp(48))
         val filters = row()
         listOf("All", "PDF", "Office", "Text").forEach { filter ->
             filters.addView(button(filter, libraryFilter == filter) {
                 libraryFilter = filter
                 showLibrary()
-            }, LinearLayout.LayoutParams(0, dp(45), 1f).apply { setMargins(dp(2), dp(8), dp(2), dp(8)) })
+            }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
         }
         content.add(filters)
         val list = column()
@@ -141,31 +150,30 @@ class MainActivity : Activity() {
                 val ext = DocumentParser.extension(name)
                 name.contains(search.text.toString(), true) && when (libraryFilter) {
                     "PDF" -> ext == "pdf"
-                    "Office" -> ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp", "doc", "xls", "ppt")
+                    "Office" -> OfficeFormats.supports(name)
                     "Text" -> ext in setOf("txt", "md", "csv", "tsv", "rtf")
                     else -> true
                 }
             }
             if (filtered.isEmpty()) {
-                val empty = column().apply { background = round(Color.WHITE); setPadding(dp(24), dp(30), dp(24), dp(30)) }
-                empty.add(label(if (files.isEmpty()) "A fresh page starts here." else "No matching documents.", 20f, ink, true))
-                empty.add(label("Open PDF, Word, Excel, PowerPoint,\nOpenDocument, or text files.", 15f, muted))
-                empty.add(label("OFFLINE  ·  NO ACCOUNT  ·  NO ADS", 10f, purple, true), margin = 8)
+                val empty = column().apply { background = outlined(); setPadding(dp(18), dp(22), dp(18), dp(22)) }
+                empty.add(label(if (files.isEmpty()) "No documents yet" else "No matching documents", 18f, ink, true))
+                empty.add(label("Tap Open to choose a file.\nPrivate, offline, and saved on this device.", 14f, muted))
                 list.add(empty, margin = 2)
             }
             filtered.forEach { f ->
                 val name = prefs.getString("name_${f.name}", f.name) ?: f.name
-                val card = row().apply { background = round(Color.WHITE); setPadding(dp(14), dp(16), dp(14), dp(16)); isClickable = true; isFocusable = true }
+                val card = row().apply { background = outlined(); setPadding(dp(12), dp(10), dp(10), dp(10)); isClickable = true; isFocusable = true }
                 val ext = DocumentParser.extension(name).uppercase().ifBlank { "FILE" }
-                card.add(label(ext.take(5), 11f, purple, true).apply { gravity = Gravity.CENTER; background = round(Color.rgb(239, 235, 253), 10); contentDescription = "$ext file" }, dp(54), dp(54))
+                card.add(label(ext.take(5), 10f, purple, true).apply { gravity = Gravity.CENTER; background = outlined(); contentDescription = "$ext file" }, dp(42), dp(42))
                 val info = column().apply { setPadding(dp(12), 0, dp(6), 0) }
-                info.add(label(name, 16f, ink, true).apply { maxLines = 2 })
+                info.add(label(name, 15f, ink, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.END })
                 info.add(label("${formatSize(f.length())}  ·  Saved on device", 12f, muted))
                 card.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
                 card.add(label("›", 29f, muted), dp(22))
                 card.setOnClickListener { open(f) }
                 card.setOnLongClickListener { libraryMenu(f, name); true }
-                list.add(card, margin = 4)
+                list.add(card, margin = 3)
             }
         }
         search.addTextChangedListener(watcher { refresh() })
@@ -233,30 +241,42 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun open(file: File) {
+    private fun open(file: File, textOnly: Boolean = false, searchAfter: Boolean = false) {
         token++
         val expected = token
         currentFile = file
         currentName = prefs.getString("name_${file.name}", file.name) ?: file.name
         val originalName = currentName
         prefs.edit().putLong("time_${file.name}", System.currentTimeMillis()).apply()
-        sectionIndex = 0; rowStart = 0; query = ""; matches = emptyList(); searchResult = -1
+        sectionIndex = 0; rowStart = 0; query = ""; searchKey = ""; matches = emptyList(); searchResult = -1
         document = null
         newScreen()
         readerHeader()
         if (DocumentParser.extension(currentName) == "pdf") {
-            root.add(label("PDF · rendered locally · text search and pinch zoom unavailable", 11f, muted).apply { setPadding(dp(16), dp(8), dp(16), dp(8)) })
             pdf = PdfReaderView(this, file) { message -> error("PDF preview", message) }
+            pdf?.setNightMode(nightPages)
             root.addView(pdf, LinearLayout.LayoutParams(-1, 0, 1f))
-            val nav = row()
-            nav.addView(button("Previous page") { pdf?.previousPage() }, LinearLayout.LayoutParams(0, -2, 1f))
-            nav.addView(button("Next page") { pdf?.nextPage() }, LinearLayout.LayoutParams(0, -2, 1f))
-            root.add(nav)
+            return
+        }
+        if (!textOnly && OfficeFormats.supports(currentName)) {
+            office = OfficeReaderView(this, file) { message ->
+                if (expected == token && !isFinishing && !isDestroyed) {
+                    val dialog = AlertDialog.Builder(this).setTitle("Layout preview unavailable")
+                        .setMessage("$message\n\nThe original document has not been changed.")
+                        .setNegativeButton("Close", null)
+                        .setNeutralButton("Open externally") { _, _ -> external(file) }
+                    if (DocumentParser.extension(originalName) in DocumentParser.supported)
+                        dialog.setPositiveButton("Text preview") { _, _ -> open(file, textOnly = true) }
+                    dialog.show()
+                }
+            }
+            office?.setNightMode(nightPages)
+            root.addView(office, LinearLayout.LayoutParams(-1, 0, 1f))
             return
         }
         if (DocumentParser.extension(currentName) !in DocumentParser.supported) {
             root.add(label("This format needs a dedicated app.", 23f, ink, true).apply { setPadding(dp(24), dp(34), dp(24), dp(16)) })
-            root.add(label("FolioDock does not render legacy DOC, XLS, PPT, encrypted Office files, or arbitrary file types. Your original file is unchanged.", 16f, muted).apply { setPadding(dp(24), 0, dp(24), dp(24)) })
+            root.add(label("This file has no text preview, or requires an unsupported importer. Encrypted or damaged documents may need another app. Your original file is unchanged.", 16f, muted).apply { setPadding(dp(24), 0, dp(24), dp(24)) })
             root.add(button("Open externally") { external(file) }, margin = 20)
             return
         }
@@ -265,7 +285,12 @@ class MainActivity : Activity() {
         worker.execute {
             try {
                 val parsed = DocumentParser.parse(file, originalName)
-                runOnUiThread { if (!isDestroyed && expected == token) { root.removeView(loading); document = parsed; createReader() } }
+                runOnUiThread {
+                    if (!isDestroyed && expected == token) {
+                        root.removeView(loading); document = parsed; createReader()
+                        if (searchAfter) showFindDialog()
+                    }
+                }
             } catch (e: Exception) {
                 runOnUiThread {
                     if (!isDestroyed && expected == token) {
@@ -279,29 +304,107 @@ class MainActivity : Activity() {
         }
     }
     private fun readerHeader() {
-        val header = row().apply { setBackgroundColor(navy); setPadding(dp(10), dp(12), dp(10), dp(12)) }
-        header.add(button("‹ Library") { showLibrary() }, dp(100))
-        header.addView(label(currentName, 16f, Color.WHITE, true).apply { maxLines = 2; setPadding(dp(12), 0, dp(8), 0) }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.add(button("⋮") {
-            val f = currentFile ?: return@button
-            AlertDialog.Builder(this).setTitle(currentName).setItems(arrayOf("Share original", "Open externally")) { _, which -> if (which == 0) share(f) else external(f) }.show()
-        }, dp(48))
-        root.add(header)
+        val header = row().apply { setBackgroundColor(Color.BLACK); setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        header.add(button("‹") { showLibrary() }.apply { textSize = 30f; contentDescription = "Back to library" }, dp(48), dp(48))
+        header.addView(label(currentName, 15f, ink, true).apply {
+            setSingleLine(); ellipsize = TextUtils.TruncateAt.MIDDLE; setPadding(dp(4), 0, dp(4), 0)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.add(button("⌕") { showFindDialog() }.apply { textSize = 26f; contentDescription = "Find in document" }, dp(48), dp(48))
+        header.add(button("⋮") { readerMenu() }.apply { textSize = 23f; contentDescription = "Reader options" }, dp(48), dp(48))
+        root.add(header, height = dp(56))
+    }
+    private fun readerMenu() {
+        val file = currentFile ?: return
+        val items = mutableListOf<Pair<String, () -> Unit>>()
+        if (office != null || pdf != null) {
+            items += (if (nightPages) "Original page colors" else "Night page colors") to {
+                nightPages = !nightPages
+                prefs.edit().putBoolean("night_pages", nightPages).apply()
+                office?.setNightMode(nightPages)
+                pdf?.setNightMode(nightPages)
+            }
+        }
+        if (office != null) {
+            items += "Go to page / slide / sheet" to { office?.showPageChooser(); Unit }
+            items += "Previous page / part" to { office?.previousPage(); Unit }
+            items += "Next page / part" to { office?.nextPage(); Unit }
+            items += "Fit page width" to { office?.fitWidth(); Unit }
+            items += "Zoom in" to { office?.zoomIn(); Unit }
+            items += "Zoom out" to { office?.zoomOut(); Unit }
+            if (DocumentParser.extension(currentName) in DocumentParser.supported)
+                items += "Text preview / search" to { open(file, textOnly = true) }
+        } else if (document != null && OfficeFormats.supports(currentName)) {
+            items += "Full layout" to { open(file) }
+        }
+        if (pdf != null) {
+            items += "Previous page" to { pdf?.previousPage(); Unit }
+            items += "Next page" to { pdf?.nextPage(); Unit }
+        }
+        val sections = document?.sections.orEmpty()
+        if (sections.size > 1) {
+            items += "Go to section · ${sectionIndex + 1} / ${sections.size}" to {
+                AlertDialog.Builder(this).setTitle("Go to section")
+                    .setItems(sections.map { it.title }.toTypedArray()) { _, index ->
+                        sectionIndex = index; rowStart = 0; renderSection()
+                    }.show()
+                Unit
+            }
+            if (sectionIndex > 0) items += "Previous section" to { sectionIndex--; rowStart = 0; renderSection() }
+            if (sectionIndex < sections.lastIndex) items += "Next section" to { sectionIndex++; rowStart = 0; renderSection() }
+        }
+        if (document != null) {
+            items += "Text size" to {
+                val sizes = arrayOf("Small · 14", "Default · 17", "Large · 20", "Extra large · 24")
+                val values = floatArrayOf(14f, 17f, 20f, 24f)
+                AlertDialog.Builder(this).setTitle("Text size").setSingleChoiceItems(sizes, values.indexOfFirst { it == textSizeSp }) { dialog, index ->
+                    textSizeSp = values[index]; renderSection(); dialog.dismiss()
+                }.setNegativeButton("Close", null).show()
+                Unit
+            }
+        }
+        items += "Preview details" to {
+            error("Preview details", when {
+                office != null -> "Full layout is rendered offline by LibreOffice 26.2.6.3, including page geometry, styles, images, tables, and slide/sheet layouts. Pinch to zoom and drag to pan. Fonts and advanced features can differ from Microsoft Office. This is a read-only viewer; macros are not enabled. Use Text preview for searchable extracted text."
+                document != null -> document!!.notice
+                else -> "PDF pages retain their original colors. PDF text search and text selection are not available in this viewer."
+            })
+        }
+        items += "Share original" to { share(file) }
+        items += "Open externally" to { external(file) }
+        AlertDialog.Builder(this).setItems(items.map { it.first }.toTypedArray()) { _, index -> items[index].second() }.show()
+    }
+    private fun showFindDialog() {
+        if (office != null) {
+            val file = currentFile ?: return
+            if (DocumentParser.extension(currentName) in DocumentParser.supported) {
+                open(file, textOnly = true, searchAfter = true)
+            } else toast("Text search is unavailable for this format. You can use page navigation or open it externally.")
+            return
+        }
+        if (document == null) {
+            toast(if (pdf != null) "PDF text search is not available in this viewer." else "Wait for the document to open.")
+            return
+        }
+        val panel = column().apply { setPadding(dp(20), dp(8), dp(20), dp(8)) }
+        val input = EditText(this).apply {
+            hint = "Find text"; setSingleLine(); setText(query); textSize = 16f
+            setTextColor(ink); setHintTextColor(muted); contentDescription = "Find text in document"
+        }
+        panel.add(input, height = dp(48))
+        resultLabel = label("", 12f, muted)
+        panel.add(resultLabel)
+        val dialog = AlertDialog.Builder(this).setTitle("Find in document").setView(panel)
+            .setNegativeButton("Close", null).setNeutralButton("Clear", null).setPositiveButton("Find next", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { performSearch(input.text.toString()) }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { input.setText(""); performSearch("") }
+        }
+        input.setOnEditorActionListener { _, _, _ -> performSearch(input.text.toString()); true }
+        dialog.show()
     }
     private fun createReader() {
-        val parsed = document ?: return
-        val notice = label(parsed.notice, 11f, muted).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }
-        root.add(notice)
-        val controls = row().apply { setPadding(dp(12), 0, dp(12), dp(6)) }
-        val search = EditText(this).apply { hint = "Find in document"; textSize = 14f; setSingleLine(); contentDescription = "Find text in document" }
-        controls.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
-        controls.add(button("Find") { performSearch(search.text.toString()) }, dp(62))
-        controls.add(button("A−") { textSizeSp = (textSizeSp - 1).coerceAtLeast(12f); renderSection() }, dp(48))
-        controls.add(button("A+") { textSizeSp = (textSizeSp + 1).coerceAtMost(28f); renderSection() }, dp(48))
-        root.add(controls)
-        search.setOnEditorActionListener { _, _, _ -> performSearch(search.text.toString()); true }
-        resultLabel = label("", 12f, purple).apply { setPadding(dp(18), 0, dp(18), dp(4)) }
-        root.add(resultLabel)
+        if (document == null) return
+        resultLabel = label("", 12f, muted)
         body = column()
         root.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
         renderSection()
@@ -313,18 +416,6 @@ class MainActivity : Activity() {
         if (sections.isEmpty()) { body.add(label("No readable content was found.", 17f).apply { setPadding(dp(24), dp(24), dp(24), dp(24)) }); return }
         sectionIndex = sectionIndex.coerceIn(0, sections.lastIndex)
         val section = sections[sectionIndex]
-        val navigation = row().apply { setPadding(dp(12), dp(6), dp(12), dp(6)) }
-        navigation.add(button("‹") { sectionIndex = (sectionIndex - 1).coerceAtLeast(0); rowStart = 0; renderSection() }.apply { isEnabled = sectionIndex > 0 }, dp(44))
-        navigation.addView(label("${section.title}\n${sectionIndex + 1} of ${sections.size}", 14f, ink, true).apply {
-            gravity = Gravity.CENTER
-            setOnClickListener {
-                AlertDialog.Builder(this@MainActivity).setTitle("Go to section")
-                    .setItems(sections.map { it.title }.toTypedArray()) { _, index -> sectionIndex = index; rowStart = 0; renderSection() }.show()
-            }
-            contentDescription = "Choose section. ${section.title}, ${sectionIndex + 1} of ${sections.size}"
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        navigation.add(button("›") { sectionIndex = (sectionIndex + 1).coerceAtMost(sections.lastIndex); rowStart = 0; renderSection() }.apply { isEnabled = sectionIndex < sections.lastIndex }, dp(44))
-        body.add(navigation)
         val scroll = ScrollView(this)
         body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         if (section.rows.isNotEmpty()) {
@@ -342,18 +433,18 @@ class MainActivity : Activity() {
                 for (c in 0 until cols) line.add(cell(section.rows[r].getOrNull(c) ?: "", r % 2 == 1), dp(150))
                 table.add(line)
             }
-            val pages = row().apply { setPadding(dp(12), dp(4), dp(12), dp(8)) }
-            pages.add(button("Earlier rows") { rowStart = (rowStart - 40).coerceAtLeast(0); renderSection() }.apply { isEnabled = rowStart > 0 }, dp(120))
+            val pages = row().apply { setPadding(dp(8), 0, dp(8), 0) }
+            pages.add(button("‹") { rowStart = (rowStart - 40).coerceAtLeast(0); renderSection() }.apply { isEnabled = rowStart > 0; contentDescription = "Earlier rows" }, dp(48), dp(48))
             pages.addView(label("${rowStart + 1}–${min(rowStart + 40, section.rows.size)} / ${section.rows.size}", 12f).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, -2, 1f))
-            pages.add(button("More rows") { rowStart += 40; renderSection() }.apply { isEnabled = rowStart + 40 < section.rows.size }, dp(110))
-            body.add(pages)
+            pages.add(button("›") { rowStart += 40; renderSection() }.apply { isEnabled = rowStart + 40 < section.rows.size; contentDescription = "More rows" }, dp(48), dp(48))
+            if (section.rows.size > 40) body.add(pages, height = dp(48))
         } else {
             val text = label("", textSizeSp).apply {
                 text = highlighted(section.text.ifBlank { "No readable text in this section." })
                 setTextIsSelectable(true)
-                setPadding(dp(24), dp(22), dp(24), dp(40))
-                setLineSpacing(dp(6).toFloat(), 1.14f)
-                background = round(Color.WHITE, 10)
+                setPadding(dp(18), dp(16), dp(18), dp(28))
+                setLineSpacing(dp(4).toFloat(), 1.08f)
+                setBackgroundColor(Color.BLACK)
             }
             scroll.addView(text)
         }
@@ -362,7 +453,7 @@ class MainActivity : Activity() {
         text = highlighted(value.take(10_000))
         setTextIsSelectable(true)
         setPadding(dp(10), dp(12), dp(10), dp(12))
-        setBackgroundColor(if (shaded) Color.rgb(234, 233, 241) else Color.WHITE)
+        background = round(Color.BLACK, 0).apply { setStroke(dp(1), if (shaded) Color.rgb(48, 48, 56) else Color.rgb(28, 28, 32)) }
         minHeight = dp(46)
     }
     private fun columnLabel(index: Int): String {
@@ -378,7 +469,7 @@ class MainActivity : Activity() {
             while (from < text.length && count++ < 2000) {
                 val found = text.indexOf(query, from, true)
                 if (found < 0) break
-                setSpan(BackgroundColorSpan(Color.rgb(255, 227, 133)), found, found + query.length, 0)
+                setSpan(BackgroundColorSpan(Color.rgb(91, 67, 12)), found, found + query.length, 0)
                 from = found + query.length
             }
         }
@@ -454,9 +545,24 @@ class MainActivity : Activity() {
         }.show()
     }
     private fun about() {
-        AlertDialog.Builder(this).setTitle("FolioDock · 1.0")
-            .setMessage("A private, offline document dock.\n\nPDF: native page rendering.\nDOCX / PPTX / XLSX: text or values previews.\nODT / ODP / ODS: text or values previews.\nTXT / MD / CSV / TSV / RTF: text previews.\n\nNot a full-fidelity Office engine. Images, charts, advanced formatting, encrypted Office documents and legacy DOC / XLS / PPT are not rendered. Use Open externally for a dedicated viewer.\n\nFiles are copied into app-private storage. No network permission, tracking, ads, or cloud upload. Android backups are disabled. Removing this app removes its copies. Source files remain unchanged.\n\nLimits: 80 MB import, 2 MB text, 12 MB per XML component. Spreadsheet previews are bounded and paginated.")
+        AlertDialog.Builder(this).setTitle("FolioDock · 2.0")
+            .setMessage("An offline document reader with AMOLED-black chrome and a compact toolbar.\n\nOffice layout: LibreOffice 26.2.6.3 renders DOC / DOCX, XLS / XLSX, PPT / PPTX, OpenDocument, RTF, and related template formats, including formatting and images. Fonts, advanced charts, and complex documents may differ from Microsoft Office. Read-only; macros are disabled.\n\nPDF: native page rendering. Text / Markdown / CSV / TSV: searchable text and table previews. Optional text preview is available for modern Office files.\n\nNo network permission, tracking, ads, or cloud upload. Android backups are disabled. Imported copies stay on this device; originals remain unchanged.\n\nLibreOffice is MPL-2.0 licensed software. Corresponding engine source, notices, and original build provenance are documented in the repository's THIRD_PARTY_NOTICES.md. FolioDock is not affiliated with The Document Foundation.\n\nLimits: 80 MB import. Only 64-bit ARM and x86 Android devices are supported. Password-protected files require an external app.")
+            .setNeutralButton("Licenses") { _, _ -> showLicenses() }
             .setPositiveButton("Close", null).show()
+    }
+    private fun showLicenses() {
+        val choices = arrayOf("Notices and corresponding source", "Mozilla Public License 2.0", "GNU Lesser GPL", "GNU GPL", "Component licenses")
+        val files = arrayOf("NOTICE.txt", "LibreOffice-COPYING.MPL", "LibreOffice-COPYING.LGPL", "LibreOffice-COPYING", "LibreOffice-components.xml")
+        AlertDialog.Builder(this).setTitle("Open-source licenses").setItems(choices) { _, index ->
+            val text = assets.open("licenses/${files[index]}").bufferedReader().use { it.readText() }
+            val scroll = ScrollView(this).apply {
+                addView(label("", 12f).apply {
+                    this.text = if (index == 4) android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY) else text
+                    setPadding(dp(20), dp(8), dp(20), dp(8)); setTextIsSelectable(true)
+                })
+            }
+            AlertDialog.Builder(this).setTitle(choices[index]).setView(scroll).setPositiveButton("Close", null).show()
+        }.setNegativeButton("Close", null).show()
     }
     private fun formatSize(bytes: Long) = if (bytes < 1024 * 1024) "${(bytes / 1024).coerceAtLeast(1)} KB" else String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1048576.0)
     private fun error(title: String, message: String) { if (!isFinishing) AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show() }
@@ -466,6 +572,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         token++
         pdf?.close()
+        office?.close()
         worker.shutdown()
         super.onDestroy()
     }

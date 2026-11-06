@@ -2,3 +2,5 @@
 gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+# Preserve upstream licensing files byte-for-byte, including their original spacing.
+app/src/main/assets/licenses/LibreOffice-* -whitespace

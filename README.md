@@ -1,84 +1,94 @@
 # FolioDock
 
-A native, offline Android document dock. Choose a file through Android’s document picker, keep a private local copy, and read without an account, ads, cloud conversion, or an Internet permission.
+An offline Android document reader with AMOLED-black chrome, a compact 56 dp toolbar, and a real LibreOffice layout engine. Office pages are no longer reconstructed from extracted text.
 
-FolioDock is a real read-only viewer, not a full-fidelity Microsoft Office replacement. Office previews prioritize readable text and spreadsheet values. The original file is never modified.
+## Download the APK
 
-## Format support
+Open [Releases](https://github.com/virgil48YT/foliodock/releases/latest) and download **FolioDock-arm64-v8a.apk** for a modern 64-bit ARM Android phone. **FolioDock-x86_64.apk** is for compatible Intel devices or Android emulators. The release assets are raw `.apk` files, not ZIP archives; `SHA256SUMS.txt` accompanies each build.
 
-| Format | In-app support | Important limitations |
-| --- | --- | --- |
-| PDF | Native Android `PdfRenderer`, scrollable pages, previous/next page | No text search, text selection, annotations, pinch zoom, password entry, or forms |
-| DOCX | Body paragraphs and table-cell text | No page-layout fidelity, images, headers/footers, comments, tracked-change interpretation, or embedded objects |
-| XLSX | Multiple named sheets; shared/inline strings; booleans; stored numeric and formula values; horizontal table scrolling | No formula calculation, number/date formatting, styles, charts, merged cells, or preservation of missing row numbers; dates may show as serial values |
-| PPTX | Separate slide-text sections in presentation order | No slide graphics, original positioning, animation, or speaker notes |
-| ODT | Paragraph text, including text inside table cells | Text-first; not original page layout |
-| ODS | Named sheets and text/value tables; bounded repeated rows/cells | No formula calculation, original formatting, or chart rendering |
-| ODP | Separate slide-text sections | No graphics or slide-layout fidelity |
-| TXT, MD | Selectable UTF-8 text | Markdown is shown as source, not rendered |
-| CSV, TSV | Quoted fields, embedded newlines, escaped quotes, paginated tables | UTF-8 only; CSV uses a comma delimiter |
-| RTF | Basic text, common controls, Unicode escapes, Windows-1252 hexadecimal escapes | Not a complete RTF engine; complex code pages, layout, embedded objects, and pictures are unsupported |
-| DOC, XLS, PPT and other files | Imported copy can be shared or handed to another installed app | No in-app legacy binary-format rendering; an appropriate external app must be installed |
+Android 8.0 or later is required. There is no 32-bit ARM build. Expect a substantially larger download than version 1 because the native layout engine and fonts are bundled for offline use.
 
-Encrypted Office documents are not supported. Password-protected PDFs may fail to open. Office ZIP/XML previews accept UTF-8 or ASCII XML only, and deliberately reject DTDs and entity declarations.
+The old version was signed with an Android debug key. This version uses a separate, persistent release key. **Uninstall the old debug build before installing version 2** if Android reports a signature conflict. Uninstalling deletes FolioDock's private imported copies; keep or share any needed copies first. Your original source documents are not changed by FolioDock.
 
-## Reader and library
+Release signing establishes a stable signing identity, not a Google security endorsement. Play Protect may still scan, warn about, or block sideloaded apps; do not disable protection merely because an APK is signed. See [Google's Play Protect documentation](https://support.google.com/googleplay/answer/2812853?hl=en).
 
-- Private library, recency ordering, filename search, and PDF/Office/Text filters.
-- Document-picker imports, including supported content-URI “Open with” intents.
-- Find in document: highlights matching text and cycles through matching text sections or spreadsheet rows. It is not PDF search.
-- Adjustable text size for paragraph and slide-text views.
-- Spreadsheet paging in groups of 40 rows, with horizontal scrolling and row/column labels.
-- Section, sheet, and slide navigation; tap the section title to jump directly.
-- Share the unmodified imported file, open it in another installed app, or remove only FolioDock’s local copy.
-- Android 8.0+ (API 26). Application ID: `app.foliodock`.
+## Reading experience
 
-## Privacy and safety
+- **AMOLED UI:** Pure `#000000` app background, dialogs, status/navigation bars, and toolbar. No large hero panel or permanent search, warning, font, or navigation bars above the document.
+- **Full Office layout:** LibreOffice 26.2.6.3 renders page geometry, paragraph styles, tables, images, drawings, and supported charts instead of flattening content into text.
+- **Navigation:** Pinch to zoom, drag to pan, and double-tap to zoom. The overflow menu contains page/slide/sheet selection, previous/next, fit width, zoom, sharing, and external-app opening.
+- **Page colors:** Original document colors are preserved by default. “Night page colors” optionally inverts the displayed PDF/Office bitmap without modifying the source file.
+- **Text search:** TXT, Markdown, CSV, and TSV retain searchable text/table previews. Supported modern Office formats have an optional text preview for search; choosing Find from a layout preview switches to it. Return with “Full layout.”
+- **Local files:** Android's system picker imports a bounded copy into app-private storage. Recent files, filtering, sharing, and deleting the local copy remain available.
 
-There are no analytics, third-party runtime SDKs, ad libraries, account flows, or network permission. Imports are copied into the app’s private internal storage; source-provider access is read-only. Android backup is disabled. Uninstalling FolioDock removes its private copies, not the source files.
+## Supported formats
 
-Sharing and external opening are explicit user actions that temporarily grant another selected app read access to the original imported file. The sharing provider is not exported, permits only read access, and verifies that requested paths remain inside the import directory.
+| Family | Reader |
+| --- | --- |
+| PDF | Native Android `PdfRenderer`, original page layout, lazy page rendering |
+| Word / Writer | DOC, DOCX, DOCM, DOT, DOTX, DOTM, ODT, OTT, FODT, RTF via LibreOffice |
+| Excel / Calc | XLS, XLSX, XLSM, XLT, XLTX, XLTM, XLSB, ODS, OTS, FODS via LibreOffice |
+| PowerPoint / Impress | PPT, PPTX, PPTM, PPS, PPSX, PPSM, POT, POTX, POTM, ODP, OTP, FODP via LibreOffice |
+| Draw | ODG, OTG, FODG via LibreOffice |
+| Text / data | TXT, MD, CSV, TSV through the bounded text/table reader |
+| Other / damaged / encrypted | Error handling and external-app fallback; not a universal importer |
 
-Import size is capped at 80 MiB. Plain-text imports are capped at 2,000,000 bytes. ZIP archives are limited to 5,000 entries and 250 MiB declared expanded size. Parsed XML is limited to 12 MiB per component and 60 MiB total read; entries are bounded during decompression even if ZIP metadata is inaccurate. XML DTD/entity declarations are rejected before parsing, and an entity resolver refuses external resources. ZIP files are read in place, never extracted into the filesystem. Macros, scripts, formulas, and embedded objects are not executed.
+This is a full-layout engine, **not a guarantee of pixel-identical Microsoft Office output**. Font substitution, advanced charts, embedded objects, unusual formats, or unsupported features can differ. Macros and scripts are disabled; VBA is not executed. Encrypted files currently require another app. Office mode is read-only and does not implement editing, annotations, text selection, or saving changes. PDF search and pinch zoom are not implemented.
 
-Workbook previews are limited to 100 sheets, 2,000 existing rows and 100 columns per sheet, with an aggregate cap of 200,000 stored cells / 2,000,000 text characters. Presentations are limited to the first 500 slides; PDF previews to 2,000 pages. XML parsing is bounded but not a complete malware sandbox: as with any viewer, use a supported Android version and avoid untrusted sensitive files.
+## Privacy and renderer safeguards
 
-## Build
+There is no Internet permission, analytics SDK, advertising SDK, cloud upload, or background synchronization. Files are not sent to a conversion server. Native LibreOffice initialization, document handles, part changes, and tile painting are serialized on one process-lifetime worker. Rendering uses viewport tiles with a bounded bitmap cache, not a bitmap of an entire workbook. Native parser bugs can still crash the process; no document parser is a blanket guarantee that an arbitrary hostile file is safe.
 
-Requirements: JDK 17, Android SDK Platform 35, Android SDK Build Tools 35.0.0, and a working network connection for the initial Gradle/plugin download. Runtime use is offline.
+The private LibreOffice profile explicitly disables macro execution and sets macro security to Very High before initialization. Display gestures do not send editing, macro, mouse, keyboard, or save commands to the document. Android backup/transfer exclusions cover the private document storage and engine profile.
+
+Imports are limited to 80 MB. The fallback text parser retains bounded ZIP/XML expansion and output limits, UTF-8 XML restrictions, DTD/entity rejection, and spreadsheet pagination. Those text-parser limits are not represented as sandbox guarantees for the separate native engine.
+
+## Build locally
+
+Requirements: JDK 17, Android SDK platform 35, Build Tools 35.0.0, `curl`, `unzip`, and `sha256sum`. The Gradle 8.9 wrapper is included and verifies its distribution checksum.
 
 ```sh
 export ANDROID_HOME=/path/to/android-sdk
-./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug
+./scripts/prepare-office-engine.sh
+./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-The debug APK is written to:
+The preparation script downloads two original F-Droid LibreOffice APKs, verifies pinned SHA-256 hashes, and extracts only the required assets and native libraries into ignored dependency directories. It never copies the upstream application's DEX code. Build outputs contain separate ARM64 and x86_64 APKs.
+
+For a signed release, provide your own signing credentials as environment variables:
+
+```sh
+export FOLIODOCK_STORE_FILE=/secure/path/release.jks
+export FOLIODOCK_STORE_PASSWORD=...
+export FOLIODOCK_KEY_PASSWORD=...
+# Expected alias: foliodock
+./gradlew testDebugUnitTest lintRelease assembleRelease
+```
+
+Never commit the keystore or passwords. The app's LibreOffice assets must remain uncompressed APK ZIP entries: its native virtual filesystem memory-maps stored assets. JNI libraries use legacy extraction packaging and are kept byte-identical to the pinned upstream binaries.
+
+## GitHub CI and signing
+
+Pushes to `main` and manual runs test, lint, build **non-debuggable, release-signed APKs**, verify the signatures, and publish raw APK assets to an immutable GitHub Release tied to the build commit. No Actions ZIP download is required. Pull requests run tests/lint and debug builds without release secrets.
+
+The repository uses these GitHub Actions secrets:
 
 ```text
-app/build/outputs/apk/debug/app-debug.apk
+FOLIODOCK_KEYSTORE_BASE64
+FOLIODOCK_STORE_PASSWORD
+FOLIODOCK_KEY_PASSWORD
 ```
 
-The project pins Android Gradle Plugin 8.7.3, Kotlin 2.0.21, and Gradle 8.9. The Gradle wrapper is included. No external runtime library dependencies are required. A debug build is signed using the local Android debug key and is suitable for testing, not Play Store release.
+The key is decoded only into the runner's temporary directory and removed in an `always()` cleanup step. Do not print or expose these values. Losing or changing the signing key can prevent existing installations from accepting updates.
 
-GitHub Actions runs unit tests, Android lint, and builds a debug APK on pushes, pull requests, and manual dispatch. The APK is uploaded as the `FolioDock-debug-apk` workflow artifact. In a private repository, access to the workflow and artifacts remains subject to repository permissions.
+Release certificate SHA-256:
 
-## Verification
+```text
+46:A7:66:F3:06:54:E8:CF:E5:E3:A7:CE:D4:18:95:DE:4E:45:F6:2D:3D:64:DE:9E:9E:F0:DD:B4:B1:93:F4:5A
+```
 
-The JVM suite exercises DOCX content, XLSX values and sparse columns, PPTX relationship order, ODT/ODS/ODP parsing, CSV/TSV quoting and limits, RTF text extraction, Unicode, XML safety controls, missing components, and explicit legacy-format rejection.
+## Tests and licensing
 
-These tests do not replace on-device QA. Before distributing beyond testing, check on a real Android 8+ phone and a recent edge-to-edge Android phone:
+The unit suite covers the fallback document parser and pure tiled-rendering geometry. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering.
 
-- Pick and reopen a real file in every supported format, including non-ASCII names.
-- Open a document from another app’s “Open with” flow.
-- Rotate, background, reopen, and navigate rapidly between documents.
-- Scroll a multi-page PDF, return to library, and open a different PDF.
-- Search text and switch sections; paginate and scroll a wide spreadsheet.
-- Share, open externally, cancel a picker, and remove a private copy.
-- Confirm expected failure messaging for malformed, encrypted, unsupported, and over-limit files.
-- Check large text, accessibility focus, TalkBack labels, and screen insets.
-
-No emulator or physical-device result is implied by a successful Gradle build. There is no editing, cloud sync, OCR, full Office rendering, or “every possible file format” claim.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+FolioDock's original code is MIT licensed. LibreOfficeKit bindings retain MPL-2.0 headers, and the unmodified native engine, fonts, and libraries retain their original licenses. Full component notices and corresponding-source links are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and bundled under the app's `assets/licenses/` directory. FolioDock is not affiliated with LibreOffice, The Document Foundation, F-Droid, Google, or Microsoft.

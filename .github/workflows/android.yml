@@ -1,15 +1,25 @@
-name: Build Android APK
+name: Build signed Android APK
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  APP_VERSION: 2.0.0
+concurrency:
+  group: foliodock-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -19,9 +29,55 @@ jobs:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v6
-      - name: Test and build
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
-      - uses: actions/upload-artifact@v7
+      - name: Cache verified upstream Office APKs
+        uses: actions/cache@v6
         with:
-          name: FolioDock-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ~/.cache/foliodock/libreoffice-26.2.6.3
+          key: libreoffice-26.2.6.3-fdroid-131-129
+      - name: Prepare checksum-pinned Office runtime
+        run: ./scripts/prepare-office-engine.sh
+      - name: Unit tests and Android lint
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
+      - name: Build pull-request debug APK
+        if: github.event_name == 'pull_request'
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Restore private release signing key
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FOLIODOCK_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "::error::Release signing secret is missing."; exit 1; }
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/foliodock-release.jks"
+      - name: Build signed release APKs
+        if: github.event_name != 'pull_request'
+        env:
+          FOLIODOCK_STORE_FILE: ${{ runner.temp }}/foliodock-release.jks
+          FOLIODOCK_STORE_PASSWORD: ${{ secrets.FOLIODOCK_STORE_PASSWORD }}
+          FOLIODOCK_KEY_PASSWORD: ${{ secrets.FOLIODOCK_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon lintRelease assembleRelease
+          mkdir -p release-apks
+          for abi in arm64-v8a x86_64; do
+            apk="app/build/outputs/apk/release/app-${abi}-release.apk"
+            ./scripts/verify-release-apk.sh "$apk"
+            cp "$apk" "release-apks/FolioDock-${abi}.apk"
+          done
+          cd release-apks
+          sha256sum ./*.apk > SHA256SUMS.txt
+      - name: Publish direct .apk release downloads
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" release-apks/*.apk release-apks/SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --latest \
+            --title "FolioDock ${APP_VERSION} · build ${GITHUB_RUN_NUMBER}" \
+            --notes "Signed, non-debuggable release APKs with an offline LibreOffice layout engine and AMOLED-black UI. Download FolioDock-arm64-v8a.apk for most modern Android phones; x86_64 is for compatible Intel devices and emulators. These are direct APK assets, not Actions ZIP archives. Uninstall the old debug-signed FolioDock before installing this release; original source documents are unchanged. Signing does not bypass Play Protect or unknown-source checks."
+          echo "### Direct signed APK downloads" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [ARM64 APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/FolioDock-arm64-v8a.apk)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [x86_64 APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/FolioDock-x86_64.apk)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/foliodock-release.jks"
