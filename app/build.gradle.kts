@@ -40,7 +40,11 @@ android {
     sourceSets.getByName("main").assets.srcDir("src/main/office-assets")
     androidResources {
         // LibreOffice's APK virtual filesystem memory-maps STORE entries, not deflated assets.
-        noCompress += ""
+        // Do not disable compression globally: that also bloats the large JNI libraries.
+        noCompress += listOf("src/main/office-assets", "src/main/assets")
+            .flatMap { fileTree(it).files }
+            .map { it.extension.ifEmpty { it.name } }
+            .distinct()
     }
     packaging {
         jniLibs {
