@@ -17,11 +17,16 @@ if grep -q application-debuggable <<< "$badging"; then
     exit 1
 fi
 permissions="$("$TOOLS/aapt" dump permissions "$APK")"
-if grep -q 'uses-permission:' <<< "$permissions"; then
-    echo "Unexpected Android permission. Review the manifest before releasing." >&2
-    printf '%s\n' "$permissions" >&2
-    exit 1
-fi
+declared="$(sed -n "s/.*uses-permission[^:]*: name='\([^']*\)'.*/\1/p" <<< "$permissions")"
+while IFS= read -r permission; do
+    case "$permission" in
+        android.permission.READ_EXTERNAL_STORAGE|android.permission.MANAGE_EXTERNAL_STORAGE) ;;
+        *) echo "Unexpected Android permission: $permission" >&2; exit 1 ;;
+    esac
+done <<< "$declared"
+grep -Fq android.permission.MANAGE_EXTERNAL_STORAGE <<< "$permissions" || { echo "Missing storage scan permission." >&2; exit 1; }
+grep -Fq "android.permission.READ_EXTERNAL_STORAGE' maxSdkVersion='29'" <<< "$permissions" || { echo "Legacy storage permission must be capped at API 29." >&2; exit 1; }
+grep -Eq "versionCode='3[0-9]{5,}' versionName='3\.0'" <<< "$badging" || { echo "Unexpected release version." >&2; exit 1; }
 python3 - "$APK" <<'PY'
 import sys
 from zipfile import ZipFile, ZIP_STORED

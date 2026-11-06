@@ -1,8 +1,8 @@
 # FolioDock
 
-An offline Android document reader with AMOLED-black chrome, a compact 56 dp toolbar, and a real LibreOffice layout engine. Office pages are no longer reconstructed from extracted text.
+An offline Android document reader with a monochrome AMOLED-black homepage, device-wide document discovery, a compact reader, and a real LibreOffice layout engine. Office pages are rendered with their layouts rather than reconstructed from extracted text.
 
-<img src="docs/screenshots/amoled-library.png" alt="Actual AMOLED library on Android" width="240"> <img src="docs/screenshots/amoled-reader.png" alt="Actual Word table layout with night page colors" width="240">
+<img src="docs/screenshots/amoled-reader.png" alt="Word table layout with night page colors, captured during engine verification" width="240">
 
 ## Download the APK
 
@@ -10,18 +10,35 @@ Open [Releases](https://github.com/virgil48YT/foliodock/releases/latest) and dow
 
 Android 8.0 or later is required. There is no 32-bit ARM build. Expect a substantially larger download than version 1 because the native layout engine and fonts are bundled for offline use.
 
-The old version was signed with an Android debug key. This version uses a separate, persistent release key. **Uninstall the old debug build before installing version 2** if Android reports a signature conflict. Uninstalling deletes FolioDock's private imported copies; keep or share any needed copies first. Your original source documents are not changed by FolioDock.
+**Normal updates install over the existing app. Do not uninstall a release-signed version first.** Download the newer APK and approve Android's update prompt. The package ID and persistent release signing key stay the same, while CI increases the internal Android version code on every build. Your private copies, preferences, and file index are retained.
+
+Android compares the signing certificate when installing an update; the release key is deliberately not regenerated between builds. See [Android's signing documentation](https://developer.android.com/studio/publish/app-signing).
+
+The app and GitHub release are labeled **3.0**. Its internal version code is above 300000, higher than the earlier preview's 200005. This does not implement a background auto-updater; install the downloaded APK normally.
+
+Only the earliest debug-signed prototype has a different signing key. Android cannot replace that signature with the release key in place. If you still have that prototype, back up app-only copies before the one-time migration. Subsequent release-signed updates do not require uninstalling.
 
 Release signing establishes a stable signing identity, not a Google security endorsement. Play Protect may still scan, warn about, or block sideloaded apps; do not disable protection merely because an APK is signed. See [Google's Play Protect documentation](https://support.google.com/googleplay/answer/2812853?hl=en).
 
 ## Reading experience
 
-- **AMOLED UI:** Pure `#000000` app background, dialogs, status/navigation bars, and toolbar. No large hero panel or permanent search, warning, font, or navigation bars above the document.
+- **Monochrome AMOLED UI:** Pure `#000000` background, white/gray controls, cleaner document rows, and no purple branding. The launcher uses a larger adaptive document icon with no nested background tile, plus themed-icon support on Android 13+.
+- **Specific file filters:** Horizontally scrollable PDF, DOCX, PPTX, XLSX, DOC, XLS, PPT, ODT/ODS/ODP, and text-format chips, plus Word, Excel, and PowerPoint family shortcuts. Search and “Show more” keep large libraries manageable.
 - **Full Office layout:** LibreOffice 26.2.6.3 renders page geometry, paragraph styles, tables, images, drawings, and supported charts instead of flattening content into text.
-- **Navigation:** Pinch to zoom, drag to pan, and double-tap to zoom. The overflow menu contains page/slide/sheet selection, previous/next, fit width, zoom, sharing, and external-app opening.
+- **Navigation:** Pinch to zoom, drag to pan, and double-tap to zoom in Office mode. Multi-slide presentations have visible previous/next arrows and a tappable slide counter in a compact 48 dp bottom strip. Other page/sheet, fit-width, and sharing actions remain in the overflow menu.
 - **Page colors:** Original document colors are preserved by default. “Night page colors” optionally inverts the displayed PDF/Office bitmap without modifying the source file.
 - **Text search:** TXT, Markdown, CSV, and TSV retain searchable text/table previews. Supported modern Office formats have an optional text preview for search; choosing Find from a layout preview switches to it. Return with “Full layout.”
 - **Local files:** Android's system picker imports a bounded copy into app-private storage. Recent files, filtering, sharing, and deleting the local copy remain available.
+
+## Storage access and device scanning
+
+On first launch, FolioDock explains the optional storage request. Android 11+ opens the system **Allow access to manage all files** setting; Android 8–10 requests read-only external-storage permission. Granting access starts a scan. Declining does not block the app: **Open** still works through Android's document picker.
+
+**Scan** walks accessible shared-storage folders and mounted volumes exposed by Android, including nested folders, and indexes supported Office, PDF, and text files. It does not upload files, open every document, duplicate every file, or modify originals. An individual document is copied into private preview storage only when you open it. **Stop** cancels a scan and retains the previous index. Use Scan again to refresh after files move or storage changes.
+
+Other apps' protected `Android/data` and `Android/obb` folders are excluded, and inaccessible directories are reported rather than bypassed. Cloud-only providers and unmounted volumes require the picker or mounting first. All-files access is broad OS permission, but FolioDock's scanner and external-file opening paths only read originals. See [Android's all-files-access documentation](https://developer.android.com/training/data-storage/manage-all-files).
+
+The index is limited to 50,000 supported documents per scan, with an explicit limit message rather than silently claiming a complete scan. File lists display 100 rows at a time with Show more. The existing 80 MB opening limit still applies; a larger document can appear in the index without being openable in this release. Library options can clear the index without deleting originals.
 
 ## Supported formats
 
@@ -39,7 +56,7 @@ This is a full-layout engine, **not a guarantee of pixel-identical Microsoft Off
 
 ## Privacy and renderer safeguards
 
-There is no Internet permission, analytics SDK, advertising SDK, cloud upload, or background synchronization. Files are not sent to a conversion server. Native LibreOffice initialization, document handles, part changes, and tile painting are serialized on one process-lifetime worker. Rendering uses viewport tiles with a bounded bitmap cache, not a bitmap of an entire workbook. Native parser bugs can still crash the process; no document parser is a blanket guarantee that an arbitrary hostile file is safe.
+There is no Internet permission, analytics SDK, advertising SDK, cloud upload, or background synchronization. The only declared storage permissions are `MANAGE_EXTERNAL_STORAGE` and `READ_EXTERNAL_STORAGE` capped at Android 10 / API 29. File paths and the scan index remain app-private and are not sent to a conversion server. Native LibreOffice initialization, document handles, part changes, and tile painting are serialized on one process-lifetime worker. Rendering uses viewport tiles with a bounded bitmap cache, not a bitmap of an entire workbook. Native parser bugs can still crash the process; no document parser is a blanket guarantee that an arbitrary hostile file is safe.
 
 The private LibreOffice profile explicitly disables macro execution and sets macro security to Very High before initialization. Display gestures do not send editing, macro, mouse, keyboard, or save commands to the document. Android backup/transfer exclusions cover the private document storage and engine profile.
 
@@ -91,7 +108,7 @@ Release certificate SHA-256:
 
 ## Tests and licensing
 
-The 40-case unit suite covers the fallback document parser, tiled-rendering geometry, format dispatch, and private font-configuration rewriting. Debug/release lint and both signed release assemblies pass locally. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering.
+The unit suite covers the fallback document parser, tiled-rendering geometry, format dispatch, private font-configuration rewriting, storage traversal/index persistence, and direct format/family filtering. JNI/bootstrap compatibility and visual fidelity additionally require Android runtime checks; passing JVM tests alone is not treated as proof of native rendering. Release history and changes are in [CHANGELOG.md](CHANGELOG.md).
 
 Android 11 / API 30 x86_64 emulator smoke checks installed the non-debuggable signed release and rendered Word tables and embedded images, PowerPoint shapes/images, and styled Excel cells. The compact library, reader, and persisted night-page toggle were inspected on screen. The final font configuration uses the app's writable cache and bundled fonts; native initialization succeeds without the previous upstream-package cache error. These checks are not a physical-device certification or an exhaustive format/fidelity test. See [Android verification notes](docs/ANDROID_QA.md).
 

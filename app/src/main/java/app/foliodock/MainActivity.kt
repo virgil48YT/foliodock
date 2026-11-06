@@ -9,7 +9,12 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.Environment
+import android.os.storage.StorageManager
 import android.provider.OpenableColumns
+import android.provider.Settings
+import android.content.pm.PackageManager
 import android.text.Editable
 import android.text.SpannableString
 import android.text.TextWatcher
@@ -22,12 +27,12 @@ import android.widget.*
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
 class MainActivity : Activity() {
-    private val ink = Color.rgb(241, 241, 244)
-    private val muted = Color.rgb(155, 155, 165)
-    private val purple = Color.rgb(185, 168, 255)
+    private val ink = Color.rgb(245, 245, 245)
+    private val muted = Color.rgb(155, 155, 155)
     private val paper = Color.BLACK
     private val worker = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("library", MODE_PRIVATE) }
@@ -51,15 +56,47 @@ class MainActivity : Activity() {
     private var textSizeSp = 17f
     private var token = 0
     private var libraryFilter = "All"
+    private var librarySearch = ""
+    private var deviceDocuments = emptyList<DeviceDocument>()
+    private var scanRunning = false
+    private var libraryVisible = false
+    private var scanStatus = "Scan storage to find documents on this device."
+    private val cancelScan = AtomicBoolean(false)
+    private val indexFile by lazy { File(filesDir, "device-documents.index") }
+    private data class LibraryEntry(val file: File, val name: String, val size: Long, val time: Long, val device: Boolean)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         nightPages = prefs.getBoolean("night_pages", false)
         showLibrary()
+        val initialToken = token
+        worker.execute {
+            val saved = try { DeviceIndex.read(indexFile) } catch (_: Exception) { emptyList() }
+            runOnUiThread {
+                if (!isDestroyed) {
+                    deviceDocuments = saved
+                    if (saved.isNotEmpty()) scanStatus = "${saved.size} device documents indexed. Tap Scan to refresh."
+                    if (token == initialToken) showLibrary()
+                }
+            }
+        }
         val uri = intent.takeIf { it.action == Intent.ACTION_VIEW }?.data
         if (uri != null) importDocument(uri)
         else savedInstanceState?.getString("file")?.let { file ->
             val f = File(directory, file)
             if (f.isFile && f.canonicalFile.parentFile == directory.canonicalFile) open(f)
+        }
+        if (savedInstanceState == null && uri == null && !prefs.getBoolean("storage_explained", false)) {
+            window.decorView.post {
+                if (!isFinishing && !isDestroyed) explainStorage()
+            }
+        }
+    }
+    override fun onResume() {
+        super.onResume()
+        if (prefs.getBoolean("storage_pending", false)) {
+            prefs.edit().putBoolean("storage_pending", false).apply()
+            if (hasStorageAccess()) scanDevice()
+            else toast("Storage access was not granted. Open still lets you select individual files.")
         }
     }
     override fun onNewIntent(intent: Intent) {
@@ -83,9 +120,9 @@ class MainActivity : Activity() {
         text = value; isAllCaps = false; textSize = 14f
         setTextColor(android.content.res.ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-            intArrayOf(Color.rgb(80, 80, 88), if (primary) purple else ink)
+            intArrayOf(Color.rgb(80, 80, 80), if (primary) Color.BLACK else ink)
         ))
-        background = if (primary) outlined() else round(Color.BLACK, 8)
+        background = if (primary) round(Color.WHITE, 12) else round(Color.BLACK, 12)
         minHeight = dp(48); minimumHeight = dp(48)
         minWidth = 0; minimumWidth = 0
         setPadding(dp(8), 0, dp(8), 0)
@@ -98,6 +135,7 @@ class MainActivity : Activity() {
         addView(view, LinearLayout.LayoutParams(width, height).apply { setMargins(dp(margin), dp(margin), dp(margin), dp(margin)) })
     }
     private fun newScreen() {
+        libraryVisible = false
         pdf?.close(); pdf = null
         office?.close(); office = null
         root = column().apply { setBackgroundColor(paper) }
@@ -116,69 +154,235 @@ class MainActivity : Activity() {
         token++
         currentFile = null; document = null
         newScreen()
+        libraryVisible = true
         val header = row().apply { setPadding(dp(16), dp(4), dp(4), dp(4)); setBackgroundColor(Color.BLACK) }
         header.addView(label("FolioDock", 20f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.add(button(if (scanRunning) "Stop" else "Scan") {
+            if (scanRunning) { cancelScan.set(true); toast("Stopping scan…") }
+            else if (hasStorageAccess()) scanDevice() else explainStorage()
+        }, dp(60), dp(48))
         header.add(button("＋ Open", true) { pick() }, dp(88), dp(48))
-        header.add(button("⋮") { about() }.apply { contentDescription = "About FolioDock" }, dp(48), dp(48))
+        header.add(button("⋮") { libraryOptions() }.apply { contentDescription = "Library options" }, dp(48), dp(48))
         root.add(header, height = dp(56))
         val scroll = ScrollView(this)
-        val content = column().apply { setPadding(dp(12), 0, dp(12), dp(16)) }
+        val content = column().apply { setPadding(dp(16), dp(8), dp(16), dp(20)) }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val search = EditText(this).apply {
-            hint = "Search files"; textSize = 14f; setSingleLine(); contentDescription = "Search library"
+            hint = "Search your documents"; textSize = 15f; setSingleLine(); contentDescription = "Search library"
             setTextColor(ink); setHintTextColor(muted)
-            setPadding(dp(12), 0, dp(12), 0); background = outlined()
+            setPadding(dp(16), 0, dp(16), 0); background = round(Color.rgb(18, 18, 18), 14)
+            setText(librarySearch)
         }
         content.add(search, height = dp(48))
-        val filters = row()
-        listOf("All", "PDF", "Office", "Text").forEach { filter ->
+        val filterScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val filters = row().apply { setPadding(0, dp(10), 0, dp(10)) }
+        LibraryFilters.labels.forEach { filter ->
             filters.addView(button(filter, libraryFilter == filter) {
                 libraryFilter = filter
                 showLibrary()
-            }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+            }.apply {
+                minWidth = dp(64)
+                setPadding(dp(16), 0, dp(16), 0)
+                if (libraryFilter != filter) background = outlined()
+            }, LinearLayout.LayoutParams(-2, dp(48)).apply { setMargins(0, 0, dp(8), 0) })
         }
-        content.add(filters)
+        filterScroll.addView(filters)
+        filterScroll.post {
+            val index = LibraryFilters.labels.indexOf(libraryFilter)
+            if (index >= 0) filterScroll.scrollTo((filters.getChildAt(index).left - dp(8)).coerceAtLeast(0), 0)
+        }
+        content.add(filterScroll)
+        content.add(label("Your documents", 21f, ink, true).apply { setPadding(dp(2), dp(4), 0, dp(4)) })
+        content.add(label(scanStatus, 12f, muted).apply { setPadding(dp(4), dp(4), dp(4), dp(8)) })
         val list = column()
         content.add(list)
+        var displayed = 100
         fun refresh() {
             list.removeAllViews()
-            val files = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") }
-                ?.sortedByDescending { prefs.getLong("time_${it.name}", it.lastModified()) } ?: emptyList()
+            val copies = directory.listFiles()?.filter {
+                it.isFile && !it.name.endsWith(".part") && !it.name.startsWith("scan-")
+            }?.map {
+                LibraryEntry(it, prefs.getString("name_${it.name}", it.name) ?: it.name,
+                    it.length(), prefs.getLong("time_${it.name}", it.lastModified()), false)
+            } ?: emptyList()
+            val accessible = if (hasStorageAccess()) deviceDocuments else emptyList()
+            val files = (copies + accessible.map {
+                LibraryEntry(File(it.path), it.name, it.size, it.modified, true)
+            }).sortedByDescending { it.time }
             val filtered = files.filter { f ->
-                val name = prefs.getString("name_${f.name}", f.name) ?: f.name
-                val ext = DocumentParser.extension(name)
-                name.contains(search.text.toString(), true) && when (libraryFilter) {
-                    "PDF" -> ext == "pdf"
-                    "Office" -> OfficeFormats.supports(name)
-                    "Text" -> ext in setOf("txt", "md", "csv", "tsv", "rtf")
-                    else -> true
-                }
+                val name = f.name
+                name.contains(search.text.toString(), true) && LibraryFilters.matches(libraryFilter, name)
             }
             if (filtered.isEmpty()) {
                 val empty = column().apply { background = outlined(); setPadding(dp(18), dp(22), dp(18), dp(22)) }
                 empty.add(label(if (files.isEmpty()) "No documents yet" else "No matching documents", 18f, ink, true))
-                empty.add(label("Tap Open to choose a file.\nPrivate, offline, and saved on this device.", 14f, muted))
+                empty.add(label("Tap Scan to find device documents, or Open to choose one.\nPrivate, offline, and saved on this device.", 14f, muted))
                 list.add(empty, margin = 2)
             }
-            filtered.forEach { f ->
-                val name = prefs.getString("name_${f.name}", f.name) ?: f.name
+            filtered.take(displayed).forEach { f ->
+                val name = f.name
                 val card = row().apply { background = outlined(); setPadding(dp(12), dp(10), dp(10), dp(10)); isClickable = true; isFocusable = true }
                 val ext = DocumentParser.extension(name).uppercase().ifBlank { "FILE" }
-                card.add(label(ext.take(5), 10f, purple, true).apply { gravity = Gravity.CENTER; background = outlined(); contentDescription = "$ext file" }, dp(42), dp(42))
+                card.add(label(ext.take(5), 10f, Color.WHITE, true).apply {
+                    gravity = Gravity.CENTER; background = round(Color.rgb(24, 24, 24), 10)
+                    contentDescription = "$ext file"
+                }, dp(44), dp(48))
                 val info = column().apply { setPadding(dp(12), 0, dp(6), 0) }
                 info.add(label(name, 15f, ink, true).apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.END })
-                info.add(label("${formatSize(f.length())}  ·  Saved on device", 12f, muted))
+                info.add(label("${formatSize(f.size)}  ·  ${if (f.device) f.file.parentFile?.name ?: "Shared storage" else "Imported copy"}", 12f, muted)
+                    .apply { setSingleLine(); ellipsize = TextUtils.TruncateAt.END })
                 card.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
                 card.add(label("›", 29f, muted), dp(22))
-                card.setOnClickListener { open(f) }
-                card.setOnLongClickListener { libraryMenu(f, name); true }
+                card.setOnClickListener { if (f.device) openDeviceFile(f.file) else open(f.file) }
+                card.setOnLongClickListener {
+                    if (f.device) AlertDialog.Builder(this).setTitle(name).setMessage(f.file.path)
+                        .setPositiveButton("Open") { _, _ -> openDeviceFile(f.file) }.setNegativeButton("Close", null).show()
+                    else libraryMenu(f.file, name)
+                    true
+                }
                 list.add(card, margin = 3)
             }
+            if (filtered.size > displayed) list.add(button("Show more (${filtered.size - displayed} remaining)") {
+                displayed += 100; refresh()
+            })
         }
-        search.addTextChangedListener(watcher { refresh() })
+        search.addTextChangedListener(watcher { librarySearch = search.text.toString(); displayed = 100; refresh() })
         refresh()
-        content.add(label("Long-press a document to share or remove its local copy.", 12f, muted), margin = 10)
+        content.add(label("Long-press for file details. Imported copies can be shared or removed.", 12f, muted), margin = 10)
+    }
+    private fun hasStorageAccess(): Boolean = if (Build.VERSION.SDK_INT >= 30)
+        Environment.isExternalStorageManager()
+    else checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+
+    private fun explainStorage() {
+        prefs.edit().putBoolean("storage_explained", true).apply()
+        AlertDialog.Builder(this).setTitle("Find documents on your device")
+            .setMessage("Allow storage access to scan shared storage and readable mounted volumes for PDF, Office, and text documents.\n\nAndroid 11+ calls this “all files access.” FolioDock uses it to list and read documents, not delete or modify originals. Other apps’ protected folders cannot be scanned. Scans and the file index stay on this device.\n\nYou can decline and still use Open for individual files.")
+            .setPositiveButton("Allow storage") { _, _ -> requestStorage() }
+            .setNegativeButton("Not now", null).show()
+    }
+    private fun requestStorage() {
+        if (hasStorageAccess()) { scanDevice(); return }
+        if (Build.VERSION.SDK_INT >= 30) {
+            prefs.edit().putBoolean("storage_pending", true).apply()
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: android.content.ActivityNotFoundException) {
+                try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+                catch (_: android.content.ActivityNotFoundException) {
+                    prefs.edit().putBoolean("storage_pending", false).apply()
+                    error("Storage settings unavailable", "Use Open to choose documents through Android's file picker.")
+                }
+            }
+        } else requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 201)
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 201) {
+            if (hasStorageAccess()) scanDevice()
+            else toast("Storage access denied. You can still use Open.")
+        }
+    }
+    private fun storageRoots(): List<File> {
+        val roots = mutableListOf(Environment.getExternalStorageDirectory())
+        if (Build.VERSION.SDK_INT >= 30) {
+            getSystemService(StorageManager::class.java).storageVolumes.mapNotNullTo(roots) { it.directory }
+        } else getExternalFilesDirs(null).filterNotNull().forEach { directory ->
+            var cursor: File? = directory
+            while (cursor != null && cursor.name != "Android") cursor = cursor.parentFile
+            cursor?.parentFile?.let { roots.add(it) }
+        }
+        return roots.distinctBy { it.absolutePath }
+    }
+    private fun scanDevice() {
+        if (scanRunning || !hasStorageAccess()) return
+        val roots = storageRoots()
+        scanRunning = true
+        cancelScan.set(false)
+        scanStatus = "Scanning accessible storage… You can stop this at any time."
+        if (libraryVisible) showLibrary()
+        worker.execute {
+            try {
+                val result = StorageScanner.scan(roots) { cancelScan.get() || isDestroyed }
+                if (!result.cancelled) DeviceIndex.write(indexFile, result.documents)
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        scanRunning = false
+                        if (!result.cancelled) deviceDocuments = result.documents
+                        scanStatus = if (result.cancelled) "Scan stopped. Previous index retained." else
+                            "${result.documents.size} documents · ${result.inspected} files checked" +
+                            (if (result.skippedDirectories > 0) " · ${result.skippedDirectories} folders unreadable" else "") +
+                            (if (result.limitReached) " · 50,000-document index limit reached" else "")
+                        if (libraryVisible) showLibrary()
+                    }
+                }
+            } catch (failure: Exception) {
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        scanRunning = false; scanStatus = "Scan failed. Tap Scan to retry."
+                        if (libraryVisible) showLibrary()
+                        error("Device scan", failure.message ?: "Could not read storage.")
+                    }
+                }
+            }
+        }
+    }
+    private fun libraryOptions() {
+        AlertDialog.Builder(this).setTitle("Library options")
+            .setItems(arrayOf("Storage access / scan", "Clear device index", "About FolioDock")) { _, which ->
+                when (which) {
+                    0 -> explainStorage()
+                    1 -> {
+                        if (scanRunning) { toast("Stop the scan before clearing the index."); return@setItems }
+                        indexFile.delete(); deviceDocuments = emptyList(); scanStatus = "Device index cleared. Originals are unchanged."
+                        showLibrary()
+                    }
+                    else -> about()
+                }
+            }.show()
+    }
+    private fun openDeviceFile(source: File) {
+        if (!hasStorageAccess()) { explainStorage(); return }
+        cancelScan.set(true)
+        token++
+        val expected = token
+        newScreen()
+        root.add(label("Opening your document…", 22f, ink, true).apply { setPadding(dp(24), dp(40), dp(24), dp(20)) })
+        root.add(ProgressBar(this))
+        worker.execute {
+            var partial: File? = null
+            try {
+                require(source.isFile && source.canRead()) { "This file is no longer available. Scan again to refresh the index." }
+                require(source.length() <= DocumentParser.MAX_FILE) { "Files larger than 80 MB cannot be opened." }
+                val key = java.security.MessageDigest.getInstance("SHA-256").digest(source.absolutePath.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+                val ext = DocumentParser.extension(source.name).filter { it.isLetterOrDigit() }.take(10)
+                val destination = File(directory, "scan-$key.$ext")
+                partial = File(directory, "${UUID.randomUUID()}.part")
+                source.inputStream().use { input ->
+                    partial.outputStream().use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= DocumentParser.MAX_FILE) { "Files larger than 80 MB cannot be opened." }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                check(partial.renameTo(destination)) { "Could not prepare the private preview copy." }
+                prefs.edit().putString("name_${destination.name}", source.name).apply()
+                runOnUiThread { if (!isDestroyed && expected == token) open(destination) }
+            } catch (failure: Exception) {
+                partial?.delete()
+                runOnUiThread {
+                    if (!isDestroyed && expected == token) { showLibrary(); error("Could not open device file", failure.message ?: "Try scanning again.") }
+                }
+            }
+        }
     }
     private fun pick() {
         @Suppress("DEPRECATION")
@@ -545,7 +749,7 @@ class MainActivity : Activity() {
         }.show()
     }
     private fun about() {
-        AlertDialog.Builder(this).setTitle("FolioDock · 2.0")
+        AlertDialog.Builder(this).setTitle("FolioDock · 3.0")
             .setMessage("An offline document reader with AMOLED-black chrome and a compact toolbar.\n\nOffice layout: LibreOffice 26.2.6.3 renders DOC / DOCX, XLS / XLSX, PPT / PPTX, OpenDocument, RTF, and related template formats, including formatting and images. Fonts, advanced charts, and complex documents may differ from Microsoft Office. Read-only; macros are disabled.\n\nPDF: native page rendering. Text / Markdown / CSV / TSV: searchable text and table previews. Optional text preview is available for modern Office files.\n\nNo network permission, tracking, ads, or cloud upload. Android backups are disabled. Imported copies stay on this device; originals remain unchanged.\n\nLibreOffice is MPL-2.0 licensed software. Corresponding engine source, notices, and original build provenance are documented in the repository's THIRD_PARTY_NOTICES.md. FolioDock is not affiliated with The Document Foundation.\n\nLimits: 80 MB import. Only 64-bit ARM and x86 Android devices are supported. Password-protected files require an external app.")
             .setNeutralButton("Licenses") { _, _ -> showLicenses() }
             .setPositiveButton("Close", null).show()
@@ -571,6 +775,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() { if (currentFile != null) showLibrary() else super.onBackPressed() }
     override fun onDestroy() {
         token++
+        cancelScan.set(true)
         pdf?.close()
         office?.close()
         worker.shutdown()

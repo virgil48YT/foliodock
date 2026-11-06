@@ -57,6 +57,10 @@ object OfficeRuntime {
                 if (session.closed) { destroy(session); return@execute }
                 document.initializeForRendering()
                 val type = document.documentType
+                if (type == Document.DOCTYPE_PRESENTATION) {
+                    // A presentation's navigable parts must be slides, not notes pages.
+                    document.setPartMode(Document.PART_MODE_SLIDE)
+                }
                 val pages = if (type == Document.DOCTYPE_TEXT) {
                     OfficeGeometry.parsePageRectangles(document.partPageRectangles ?: "").ifEmpty {
                         listOf(geometry(document, 0, "Document"))
@@ -159,6 +163,7 @@ object OfficeRuntime {
                     if (session.selectedPart != 0) { doc.setPart(0); session.selectedPart = 0 }
                     info.pages[index]
                 } else {
+                    if (info.type == Document.DOCTYPE_PRESENTATION) doc.setPartMode(Document.PART_MODE_SLIDE)
                     doc.setPart(index)
                     session.selectedPart = index
                     geometry(doc, index, info.names[index])

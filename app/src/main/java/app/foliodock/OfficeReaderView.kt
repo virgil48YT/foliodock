@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
+import android.content.res.ColorStateList
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -17,6 +18,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import org.libreoffice.kit.Document
 import java.io.File
 import kotlin.math.ceil
 import kotlin.math.ln
@@ -53,10 +55,23 @@ class OfficeReaderView(
     private var failed = false
     private var ready = false
     private var nightMode = false
+    private var pageLoading = true
     private val pending = mutableSetOf<OfficeTileKey>()
     private data class Cached(val tile: OfficeTile, val bitmap: Bitmap)
     private val cache = LinkedHashMap<OfficeTileKey, Cached>(32, 0.75f, true)
     private val surface = PageSurface()
+    private val previousSlide = slideControl("‹", "Previous slide") { previousPage() }
+    private val slideCounter = slideControl("", "Choose slide") { showPageChooser() }.apply { textSize = 14f }
+    private val nextSlide = slideControl("›", "Next slide") { nextPage() }
+    private val slideNavigation = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setBackgroundColor(Color.BLACK)
+        visibility = View.GONE
+        addView(previousSlide, LinearLayout.LayoutParams(dp(56), dp(48)))
+        addView(slideCounter, LinearLayout.LayoutParams(0, dp(48), 1f))
+        addView(nextSlide, LinearLayout.LayoutParams(dp(56), dp(48)))
+    }
     private val loading = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
@@ -83,22 +98,63 @@ class OfficeReaderView(
         setBackgroundColor(Color.BLACK)
         addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(loading, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(slideNavigation, LayoutParams(LayoutParams.MATCH_PARENT, dp(48), Gravity.BOTTOM))
         session = OfficeRuntime.open(activity, file) { result ->
             if (!closed) result.fold(
-                onSuccess = { (_, documentInfo) -> info = documentInfo; selectPage(0) },
+                onSuccess = { (_, documentInfo) ->
+                    info = documentInfo
+                    configureSlideNavigation()
+                    selectPage(0)
+                },
                 onFailure = { fail(it.message ?: "Unable to open the document.") }
             )
         }
     }
     private fun dp(value: Int) = (value * density).roundToInt()
+    private fun slideControl(label: String, description: String, action: () -> Unit) = TextView(activity).apply {
+        text = label
+        textSize = 28f
+        gravity = Gravity.CENTER
+        setTextColor(ColorStateList(
+            arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+            intArrayOf(Color.rgb(80, 80, 80), Color.WHITE)
+        ))
+        contentDescription = description
+        isClickable = true
+        isFocusable = true
+        minHeight = dp(48)
+        setOnClickListener { action() }
+        val attributes = activity.obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+        foreground = attributes.getDrawable(0)
+        attributes.recycle()
+    }
+    private fun configureSlideNavigation() {
+        val visible = info?.type == Document.DOCTYPE_PRESENTATION && pageCount > 1
+        slideNavigation.visibility = if (visible) View.VISIBLE else View.GONE
+        val bottom = if (visible) dp(48) else 0
+        (surface.layoutParams as LayoutParams).apply { bottomMargin = bottom; surface.layoutParams = this }
+        (loading.layoutParams as LayoutParams).apply { bottomMargin = bottom; loading.layoutParams = this }
+        updateSlideNavigation()
+    }
+    private fun updateSlideNavigation() {
+        previousSlide.isEnabled = !closed && !failed && !pageLoading && pageIndex > 0
+        nextSlide.isEnabled = !closed && !failed && !pageLoading && pageIndex + 1 < pageCount
+        slideCounter.isEnabled = !closed && !failed && !pageLoading
+        slideCounter.text = "Slide ${pageIndex + 1} of $pageCount  ▾"
+        slideCounter.contentDescription = "Slide ${pageIndex + 1} of $pageCount. Choose a slide."
+    }
 
-    fun nextPage() { if (pageIndex + 1 < pageCount) selectPage(pageIndex + 1) }
-    fun previousPage() { if (pageIndex > 0) selectPage(pageIndex - 1) }
+    fun nextPage() { if (!pageLoading && pageIndex + 1 < pageCount) selectPage(pageIndex + 1) }
+    fun previousPage() { if (!pageLoading && pageIndex > 0) selectPage(pageIndex - 1) }
     fun showPageChooser() {
         val data = info ?: return
-        if (closed || activity.isFinishing) return
+        if (closed || pageLoading || activity.isFinishing) return
         val names = if (data.type == 0) data.pages.map { it.label } else data.names
-        AlertDialog.Builder(activity).setTitle(if (data.type == 1) "Choose sheet" else "Go to page")
+        AlertDialog.Builder(activity).setTitle(when (data.type) {
+            Document.DOCTYPE_SPREADSHEET -> "Choose sheet"
+            Document.DOCTYPE_PRESENTATION -> "Choose slide"
+            else -> "Go to page"
+        })
             .setSingleChoiceItems(names.toTypedArray(), pageIndex) { dialog, index ->
                 selectPage(index); dialog.dismiss()
             }.setNegativeButton("Close", null).show()
@@ -123,6 +179,8 @@ class OfficeReaderView(
         val handle = session ?: return
         if (closed || index !in 0 until pageCount) return
         pageIndex = index
+        pageLoading = true
+        updateSlideNavigation()
         page = null
         positioned = false
         clearTiles()
@@ -135,10 +193,13 @@ class OfficeReaderView(
             if (!closed && generation == expected) result.fold(
                 onSuccess = {
                     page = it
+                    pageLoading = false
+                    updateSlideNavigation()
                     loading.visibility = View.GONE
                     positionInitially()
                     ready = true
-                    surface.contentDescription = "$status. Pinch to zoom and drag to pan. Page navigation is in reader options."
+                    surface.contentDescription = "$status. Pinch to zoom and drag to pan. " +
+                        if (slideNavigation.visibility == View.VISIBLE) "Slide controls are below the document." else "Page navigation is in reader options."
                     onReady?.invoke(status)
                     surface.invalidate()
                 },
@@ -169,10 +230,11 @@ class OfficeReaderView(
     }
     private fun clamp() {
         val geometry = page ?: return
+        val viewportHeight = surface.height.takeIf { it > 0 } ?: height
         offsetX = OfficeGeometry.clampOffset(offsetX, geometry.width * scale, width, margin)
         // Long text pages start at the top; a shorter page is vertically centered only after panning.
-        offsetY = if (geometry.height * scale + margin * 2 <= height) margin
-            else OfficeGeometry.clampOffset(offsetY, geometry.height * scale, height, margin)
+        offsetY = if (geometry.height * scale + margin * 2 <= viewportHeight) margin
+            else OfficeGeometry.clampOffset(offsetY, geometry.height * scale, viewportHeight, margin)
     }
     private fun clearTiles() {
         // Canvas drawing and these references live on the UI thread. Do not recycle bitmaps that
@@ -184,6 +246,8 @@ class OfficeReaderView(
     private fun fail(message: String) {
         if (closed || failed) return
         failed = true
+        pageLoading = false
+        updateSlideNavigation()
         loading.visibility = View.GONE
         val label = TextView(activity).apply {
             text = "Unable to display this document.\n\n$message"
@@ -203,6 +267,7 @@ class OfficeReaderView(
     override fun close() {
         if (closed) return
         closed = true
+        updateSlideNavigation()
         generation++
         session?.let { OfficeRuntime.close(it) }
         session = null

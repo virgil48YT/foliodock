@@ -2,7 +2,19 @@
 
 Validation performed on November 6, 2026. This records checks actually run, not a claim that every supported format or Android device has been tested.
 
-## Build and package checks
+## Version 3.0 build verification
+
+- **Tests:** All 50 JVM tests pass, including seven storage traversal/index tests and three format-filter tests.
+- **Build and package:** Debug/release lint and signed ARM64/x86_64 assemblies pass. The package remains `app.foliodock`; version name is `3.0`, with internal version code `300006` for build 6.
+- **Signing continuity:** Both APKs verify against the same certificate used for the earlier release. No key regeneration or package-name change was introduced.
+- **Permissions:** The release checker now permits only `MANAGE_EXTERNAL_STORAGE` and `READ_EXTERNAL_STORAGE` capped at API 29. No Internet or install-packages permission is declared.
+- **Runtime qualification:** The software-emulated Android test environment suffered system-server watchdog restarts before the new app could be installed. These operating-system failures are not counted as successful 3.0 runtime checks. The earlier native-engine checks below are historical; new scanning, upgrade-data retention, launcher sizing, and multi-slide interactions require a separate runtime pass.
+
+## Earlier 2.0 baseline
+
+The following checks describe the previous preview, before the new storage permissions and 3.0 UI changes.
+
+### Build and package checks
 
 - **Unit tests:** 40 passing JVM tests across parser, geometry, format dispatch, and font configuration.
 - **Builds:** `testDebugUnitTest lintDebug lintRelease assembleRelease` passed with Android SDK 35 and JDK 17. Lint warnings remain; there are no lint errors.
@@ -10,7 +22,7 @@ Validation performed on November 6, 2026. This records checks actually run, not 
 - **Manifest:** Release APKs are not debuggable and declare no Android permissions.
 - **Packaging:** All bundled Office assets are uncompressed entries required by LibreOffice's APK virtual filesystem. Native libraries are compressed for download and extracted on installation. Required bootstrap, engine, and licensing files are present.
 
-## Runtime smoke checks
+### Runtime smoke checks
 
 Environment: Android 11 / API 30 x86_64 emulator using software emulation. Installation used the signed, non-debuggable release APK, not a debug build.
 

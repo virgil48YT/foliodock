@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 env:
-  APP_VERSION: 2.0.0
+  APP_VERSION: "3.0"
 concurrency:
   group: foliodock-${{ github.ref }}
   cancel-in-progress: true
@@ -71,10 +71,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v${APP_VERSION}-build.${GITHUB_RUN_NUMBER}"
+          if ! gh release view "v${APP_VERSION}" >/dev/null 2>&1; then
+            tag="v${APP_VERSION}"
+          fi
           gh release create "$tag" release-apks/*.apk release-apks/SHA256SUMS.txt \
             --target "$GITHUB_SHA" --latest \
             --title "FolioDock ${APP_VERSION} · build ${GITHUB_RUN_NUMBER}" \
-            --notes "Signed, non-debuggable release APKs with an offline LibreOffice layout engine and AMOLED-black UI. Download FolioDock-arm64-v8a.apk for most modern Android phones; x86_64 is for compatible Intel devices and emulators. These are direct APK assets, not Actions ZIP archives. Uninstall the old debug-signed FolioDock before installing this release; original source documents are unchanged. Signing does not bypass Play Protect or unknown-source checks."
+            --notes-file RELEASE_NOTES.md
           echo "### Direct signed APK downloads" >> "$GITHUB_STEP_SUMMARY"
           echo "- [ARM64 APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/FolioDock-arm64-v8a.apk)" >> "$GITHUB_STEP_SUMMARY"
           echo "- [x86_64 APK](https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/FolioDock-x86_64.apk)" >> "$GITHUB_STEP_SUMMARY"

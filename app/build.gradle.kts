@@ -10,8 +10,9 @@ android {
         applicationId = "app.foliodock"
         minSdk = 26
         targetSdk = 35
-        versionCode = 200000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
-        versionName = "2.0.0"
+        // Android compares this integer, not the displayed version name. Keep above 2.0 build 5.
+        versionCode = 300000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        versionName = "3.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
